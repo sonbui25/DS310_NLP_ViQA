@@ -35,9 +35,9 @@ from transformers import (
     EvalPrediction,
     HfArgumentParser,
     TrainingArguments,
-    XLNetConfig,
-    XLNetForQuestionAnswering,
-    XLNetTokenizerFast,
+    AutoConfig,
+    AutoModelForQuestionAnswering,
+    AutoTokenizer,
     default_data_collator,
     set_seed,
 )
@@ -306,19 +306,20 @@ def main():
     # Distributed training:
     # The .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
-    config = XLNetConfig.from_pretrained(
+    config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         token=model_args.token,
     )
-    tokenizer = XLNetTokenizerFast.from_pretrained(
+    tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
+        use_fast=True, # AutoTokenizer cần cờ này
         revision=model_args.model_revision,
         token=model_args.token,
     )
-    model = XLNetForQuestionAnswering.from_pretrained(
+    model = AutoModelForQuestionAnswering.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
