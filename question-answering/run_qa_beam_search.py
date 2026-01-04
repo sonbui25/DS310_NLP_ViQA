@@ -28,7 +28,7 @@ import evaluate
 from datasets import load_dataset
 from trainer_qa import QuestionAnsweringTrainer
 from utils_qa import postprocess_qa_predictions_with_beam_search
-
+from transformers import RobertaTokenizerFast
 import transformers
 from transformers import (
     DataCollatorWithPadding,
@@ -312,13 +312,21 @@ def main():
         revision=model_args.model_revision,
         token=model_args.token,
     )
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-        use_fast=True, # AutoTokenizer cần cờ này
-        revision=model_args.model_revision,
-        token=model_args.token,
-    )
+    # Ép kiểu về RobertaTokenizerFast để hỗ trợ return_offset_mapping cho PhoBERT
+    if "phobert" in model_args.model_name_or_path:
+        tokenizer = RobertaTokenizerFast.from_pretrained(
+            model_args.model_name_or_path,
+            cache_dir=model_args.cache_dir,
+            token=model_args.token
+        )
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+            cache_dir=model_args.cache_dir,
+            use_fast=True,
+            revision=model_args.model_revision,
+            token=model_args.token,
+        )
     model = AutoModelForQuestionAnswering.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
