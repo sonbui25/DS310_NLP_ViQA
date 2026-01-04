@@ -324,7 +324,7 @@ def main():
             token=model_args.token,
             trust_remote_code=model_args.trust_remote_code,
         )
-    else:
+    else:   
         # Các model khác chạy bình thường
         tokenizer = AutoTokenizer.from_pretrained(
             model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
@@ -343,7 +343,7 @@ def main():
         token=model_args.token,
         trust_remote_code=model_args.trust_remote_code,
     )
-
+    model.resize_token_embeddings(len(tokenizer))
     # Tokenizer check: this script requires a fast tokenizer.
     # Check if tokenizer has _tokenizer attribute (from tokenizers library) or is_fast property
     if not (hasattr(tokenizer, "_tokenizer") or getattr(tokenizer, "is_fast", False)):
