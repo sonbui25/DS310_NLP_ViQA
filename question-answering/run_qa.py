@@ -45,7 +45,7 @@ from transformers import (
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 from transformers import RobertaTokenizerFast
-
+from text_preprocess import TextNormalize, convert_unicode
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.57.0.dev0")
 
@@ -315,7 +315,7 @@ def main():
         token=model_args.token,
         trust_remote_code=model_args.trust_remote_code,
     )
-    if "phobert" in model_args.model_name_or_path:
+    if "phobert" in model_args.model_name_or_path: # QUAN TRỌNG
         tokenizer = RobertaTokenizerFast.from_pretrained(
             model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
             cache_dir=model_args.cache_dir,
@@ -343,7 +343,7 @@ def main():
         token=model_args.token,
         trust_remote_code=model_args.trust_remote_code,
     )
-    model.resize_token_embeddings(len(tokenizer))
+    model.resize_token_embeddings(len(tokenizer)) # QUAN TRỌNG
     # Tokenizer check: this script requires a fast tokenizer.
     # Check if tokenizer has _tokenizer attribute (from tokenizers library) or is_fast property
     if not (hasattr(tokenizer, "_tokenizer") or getattr(tokenizer, "is_fast", False)):
@@ -367,7 +367,61 @@ def main():
 
     # Padding side determines if we do (question|context) or (context|question).
     pad_on_right = tokenizer.padding_side == "right"
+    
+    # Text Normalization
+    logger.info("Start normalizing the dataset...")
+    
+    # Khởi tạo class xử lý từ module của bạn
+    normalizer = TextNormalize()
+    normalizer.createVowelsTable() # Bắt buộc gọi để tạo bảng nguyên âm
 
+    def preprocess_dataset_function(examples):
+        """Hàm chuẩn hóa chạy trên từng batch dữ liệu"""
+        questions = examples[question_column_name]
+        contexts = examples[context_column_name]
+        
+        new_questions = []
+        new_contexts = []
+        
+        for q, c in zip(questions, contexts):
+            # 1. Xử lý Question
+            q = convert_unicode(q)          # Chuyển mã Unicode dựng sẵn/tổ hợp
+            q = normalizer.normalize(q)     # Lowercase, xóa emoji, xóa dấu câu thừa
+            # Chuẩn hóa dấu câu tiếng Việt cho từng từ
+            q = " ".join([normalizer.WordStandardized(word) for word in q.split()])
+            new_questions.append(q)
+            
+            # 2. Xử lý Context
+            c = convert_unicode(c)
+            c = normalizer.normalize(c)
+            c = " ".join([normalizer.WordStandardized(word) for word in c.split()])
+            new_contexts.append(c)
+            
+        examples[question_column_name] = new_questions
+        examples[context_column_name] = new_contexts
+        return examples
+
+    # Áp dụng map vào toàn bộ dataset (Train, Val, Test)
+    # Lưu ý: batched=True giúp chạy nhanh hơn
+    if "train" in raw_datasets:
+        raw_datasets["train"] = raw_datasets["train"].map(
+            preprocess_dataset_function, 
+            batched=True, 
+            desc="Normalizing Train Data"
+        )
+    if "validation" in raw_datasets:
+        raw_datasets["validation"] = raw_datasets["validation"].map(
+            preprocess_dataset_function, 
+            batched=True, 
+            desc="Normalizing Validation Data"
+        )
+    if "test" in raw_datasets:
+        raw_datasets["test"] = raw_datasets["test"].map(
+            preprocess_dataset_function, 
+            batched=True, 
+            desc="Normalizing Test Data"
+        )
+    
     if data_args.max_seq_length > tokenizer.model_max_length:
         logger.warning(
             f"The max_seq_length passed ({data_args.max_seq_length}) is larger than the maximum length for the "
