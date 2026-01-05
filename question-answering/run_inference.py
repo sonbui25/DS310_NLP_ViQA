@@ -250,7 +250,7 @@ def main():
 
                 # Lưu vào dict
                 predictions[sample['id']] = clean_answer
-
+                print(f"ID: {sample['id']} | Ans : {clean_answer}")
             pbar.update(len(batch_samples))
 
     # 5. Lưu kết quả
