@@ -161,6 +161,7 @@ def main():
     model.eval()
     
     # Wrap với DataParallel nếu có multiple GPU
+    model_for_generate = model  # reference để gọi generate
     if args.multi_gpu and torch.cuda.device_count() > 1:
         print(f"  → Sử dụng {torch.cuda.device_count()} GPU với DataParallel")
         model = torch.nn.DataParallel(model)
@@ -246,7 +247,7 @@ def main():
             
             # Generate batch (greedy decoding - nhanh hơn beam search)
             with torch.no_grad():
-                outputs = model.generate(
+                outputs = model_for_generate.generate(
                     inputs.input_ids,
                     attention_mask=inputs.attention_mask,
                     max_new_tokens=args.max_new_tokens,
