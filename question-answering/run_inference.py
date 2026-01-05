@@ -2,6 +2,7 @@ import argparse
 import json
 import torch
 import os
+import re # Thêm thư viện này để xử lý chuỗi tốt hơn
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from tqdm import tqdm
 
@@ -48,7 +49,8 @@ FEW_SHOT_EXAMPLES_DATA = [
 
 def build_prompt(mode, context, question, model_name, num_shots=3):
     """
-    Tạo prompt phù hợp theo format của từng model (Llama/Qwen).
+    Tạo prompt theo đúng chuẩn ChatML (Chat Markup Language)
+    như yêu cầu trong ảnh: <|im_start|>system...<|im_start|>user...<|im_start|>assistant
     """
     # 1. Xây dựng nội dung cốt lõi (Core content)
     core_text = ""
@@ -57,30 +59,21 @@ def build_prompt(mode, context, question, model_name, num_shots=3):
     if mode == 'few-shot':
         examples = FEW_SHOT_EXAMPLES_DATA[:num_shots]
         for ex in examples:
-            core_text += f"Đoạn văn: {ex['context']}\nCâu hỏi: {ex['question']}\nTrả lời: {ex['answer']}\n\n"
+            core_text += f"Đoạn văn: {ex['context']}\nCâu hỏi: {ex['question']}\nTrả lời: {ex['answer_text']}\n\n"
             
     # Thêm câu hỏi hiện tại (Target)
+    # Lưu ý: "Trả lời:" ở cuối user block có thể giữ lại để định hướng model
     target_text = f"Đoạn văn: {context}\nCâu hỏi: {question}\nTrả lời:"
     user_content = core_text + target_text
 
-    # 2. Đóng gói theo format của Model
-    model_name_lower = model_name.lower()
-
-    # --- FORMAT QWEN (ChatML) ---
-    # Cấu trúc: <|im_start|>system...<|im_end|><|im_start|>user...<|im_end|><|im_start|>assistant
-    if "qwen" in model_name_lower:
-        prompt = (
-            f"<|im_start|>system\n{SYSTEM_INSTRUCTION}<|im_end|>\n"
-            f"<|im_start|>user\n{user_content}<|im_end|>\n"
-            f"<|im_start|>assistant\n"
-        )
-        return prompt
-
-    # --- FORMAT VINALLAMA / LLAMA 2 ---
-    # Cấu trúc: [INST] <<SYS>>...<</SYS>> ... [/INST]
-    else:
-        prompt = f"<s>[INST] <<SYS>>\n{SYSTEM_INSTRUCTION}\n<</SYS>>\n\n{user_content} [/INST]"
-        return prompt
+    # 2. Đóng gói theo format ChatML (BẮT BUỘC)
+    # Lưu ý: Không thêm khoảng trắng thừa giữa các thẻ
+    prompt = (
+        f"<|im_start|>system\n{SYSTEM_INSTRUCTION}<|im_end|>\n"
+        f"<|im_start|>user\n{user_content}<|im_end|>\n"
+        f"<|im_start|>assistant\n"
+    )
+    return prompt
 
 # ==============================================================================
 # PHẦN 3: MAIN INFERENCE
@@ -93,8 +86,8 @@ def main():
     parser.add_argument("--output_file", type=str, required=True)
     parser.add_argument("--mode", type=str, default="zero-shot", choices=["zero-shot", "few-shot"])
     parser.add_argument("--num_shots", type=int, default=3)
-    parser.add_argument("--max_length", type=int, default=1024)
-    parser.add_argument("--max_new_tokens", type=int, default=64)
+    parser.add_argument("--max_length", type=int, default=2048) # Tăng lên chút để an toàn cho prompt dài
+    parser.add_argument("--max_new_tokens", type=int, default=128)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--auth_token", type=str, default=None)
@@ -104,7 +97,6 @@ def main():
     # 1. Load Tokenizer & Config
     print(f"Loading tokenizer: {args.model_name}")
     try:
-        # padding_side='left' là BẮT BUỘC cho decoder-only batch inference
         tokenizer = AutoTokenizer.from_pretrained(
             args.model_name, 
             token=args.auth_token,
@@ -143,34 +135,21 @@ def main():
     # Xử lý logic đa định dạng (Adaptive Data Loading)
     if isinstance(raw_data, dict) and 'data' in raw_data:
         data_list = raw_data['data']
-        
         if len(data_list) > 0:
-            # KIỂM TRA ĐỊNH DẠNG:
             first_item = data_list[0]
-            
-            # TRƯỜNG HỢP 1: Format SQuAD chuẩn (lồng nhau: paragraphs -> qas)
-            if 'paragraphs' in first_item:
+            if 'paragraphs' in first_item: # Format SQuAD
                 for article in data_list:
                     for paragraph in article['paragraphs']:
                         context = paragraph['context']
                         for qa in paragraph['qas']:
                             all_samples.append({
-                                "id": qa['id'],
-                                "context": context,
-                                "question": qa['question']
+                                "id": qa['id'], "context": context, "question": qa['question']
                             })
-            
-            # TRƯỜNG HỢP 2: Format Phẳng (Private Test của ViQuAD/Kaggle)
-            # Dữ liệu nằm trực tiếp trong list: [{"id":..., "context":..., "question":...}]
-            else:
+            else: # Format phẳng
                 for item in data_list:
                     all_samples.append({
-                        "id": item['id'],
-                        "context": item['context'],
-                        "question": item['question']
+                        "id": item['id'], "context": item['context'], "question": item['question']
                     })
-    
-    # TRƯỜNG HỢP 3: Dữ liệu là List ngay từ đầu
     elif isinstance(raw_data, list):
         all_samples = raw_data
 
@@ -191,7 +170,7 @@ def main():
                     mode=args.mode,
                     context=s['context'],
                     question=s['question'],
-                    model_name=args.model_name, # Truyền tên model để chọn format
+                    model_name=args.model_name,
                     num_shots=args.num_shots
                 )
                 for s in batch_samples
@@ -212,37 +191,42 @@ def main():
                     inputs.input_ids,
                     attention_mask=inputs.attention_mask,
                     max_new_tokens=args.max_new_tokens,
-                    do_sample=False, # Greedy decoding cho kết quả ổn định
+                    do_sample=False,
                     pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id
                 )
             
-            # Decode và Xử lý hậu kỳ (Cleaning)
+            # Decode (Skip special tokens để loại bỏ <|im_...|>)
             decoded_sequences = tokenizer.batch_decode(outputs, skip_special_tokens=True)
             
             for sample, raw_text in zip(batch_samples, decoded_sequences):
-                # --- LOGIC LÀM SẠCH KẾT QUẢ ---
+                # --- LOGIC LÀM SẠCH KẾT QUẢ (CẬP NHẬT) ---
                 
-                clean_answer = raw_text
+                # 1. Tách phần prompt ra khỏi phần answer
+                # Do dùng skip_special_tokens=True, thẻ <|im_start|>assistant bị mất,
+                # nhưng từ "assistant" vẫn còn trong raw text (nếu tokenizer không gộp).
+                # Cách an toàn nhất cho ChatML decoded: Tìm từ "assistant" cuối cùng.
                 
-                # B1: Cắt bỏ phần Prompt
-                # Format Qwen thường có từ khóa "assistant"
-                if "assistant" in clean_answer: 
-                    clean_answer = clean_answer.split("assistant")[-1]
-                # Format chung hoặc Llama: cắt theo từ khóa cuối cùng trong prompt user
-                elif "Trả lời:" in clean_answer:
-                    clean_answer = clean_answer.split("Trả lời:")[-1]
-                elif "[/INST]" in clean_answer:
-                    clean_answer = clean_answer.split("[/INST]")[-1]
+                if "assistant" in raw_text:
+                    # Lấy phần sau chữ assistant cuối cùng
+                    clean_answer = raw_text.rpartition("assistant")[2] 
+                elif "Trả lời:" in raw_text:
+                    # Fallback nếu model lặp lại format few-shot
+                    clean_answer = raw_text.rpartition("Trả lời:")[2]
+                else:
+                    # Trường hợp hiếm: Giữ nguyên hoặc cắt theo độ dài prompt (tương đối)
+                    clean_answer = raw_text
 
-                # B2: Chỉ lấy dòng đầu tiên (tránh model tự hỏi tự trả lời tiếp)
+                # 2. Xử lý xuống dòng và khoảng trắng (QUAN TRỌNG)
+                # .strip() trước để loại bỏ \n ở đầu câu (nguyên nhân gây ra output rỗng)
+                clean_answer = clean_answer.strip()
+                
+                # Lấy dòng đầu tiên (nếu model giải thích dài dòng)
                 if '\n' in clean_answer:
                     clean_answer = clean_answer.split('\n')[0]
                 
-                # B3: Xóa ký tự thừa
-                clean_answer = clean_answer.strip()
-                
-                # Loại bỏ các prefix rác nếu model lỡ sinh ra
+                # 3. Loại bỏ prefix rác còn sót lại (nếu có)
+                # Dùng regex hoặc loop
                 remove_prefixes = ["Câu trả lời là:", "Answer:", "Đáp án:", ":"]
                 for prefix in remove_prefixes:
                     if clean_answer.lower().startswith(prefix.lower()):
@@ -250,7 +234,8 @@ def main():
 
                 # Lưu vào dict
                 predictions[sample['id']] = clean_answer
-                print(f"ID: {sample['id']} | Ans : {clean_answer}")
+                print(f"ID: {sample['id']} | Ans : {clean_answer}") 
+                
             pbar.update(len(batch_samples))
 
     # 5. Lưu kết quả
