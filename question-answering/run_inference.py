@@ -127,15 +127,23 @@ def main():
         data = json.load(f)
 
     predictions = {}
+
+    def extract_paragraphs(article):
+        # ViQuAD private test may store qas directly under each article
+        if 'paragraphs' in article:
+            return article['paragraphs']
+        if 'context' in article and 'qas' in article:
+            return [{"context": article['context'], "qas": article['qas']}]
+        raise KeyError("Article không có trường paragraphs hay context/qas")
     
     # Tính tổng số câu hỏi để hiện thanh loading
-    total_qas = sum(len(p['qas']) for art in data['data'] for p in art['paragraphs'])
+    total_qas = sum(len(p['qas']) for art in data['data'] for p in extract_paragraphs(art))
     
     # 3. Inference Loop
     print("Bắt đầu dự đoán...")
     with tqdm(total=total_qas, desc="Processing") as pbar:
         for article in data['data']:
-            for paragraph in article['paragraphs']:
+            for paragraph in extract_paragraphs(article):
                 context = paragraph['context']
                 for qa in paragraph['qas']:
                     question = qa['question']
