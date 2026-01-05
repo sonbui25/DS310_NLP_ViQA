@@ -14,10 +14,11 @@ from tqdm import tqdm
 SYSTEM_INSTRUCTION = """Bạn là một hệ thống Đọc hiểu máy (Machine Reading Comprehension). Nhiệm vụ của bạn là trích xuất câu trả lời từ đoạn văn bản cho trước.
 
 Quy tắc bắt buộc:
-1. Câu trả lời phải là một đoạn văn bản (span) được lấy NGUYÊN VĂN từ "Đoạn văn". Không được viết lại hay thay đổi từ ngữ. Đặc biệt là các tên riêng hay thuật ngữ, số liệu, thời gian phải giữ nguyên.
+1. Câu trả lời phải là một đoạn văn bản (span) được lấy NGUYÊN VĂN từ "Đoạn văn". Không được viết lại, thay đổi từ ngữ, hay thêm từ ngữ. Đặc biệt là các tên riêng hay thuật ngữ, số liệu, thời gian phải giữ nguyên.
 2. Nếu thông tin không có trong "Đoạn văn", hãy trả về chuỗi rỗng "" (không viết gì cả).
-3. Câu trả lời phải ngắn gọn và chính xác nhất.
+3. Câu trả lời phải ngắn gọn và chính xác nhất được hiển thị trong đoạn văn về format và độ dài. Không cần lặp lại các từ trong câu hỏi để mở đầu câu trả lời mà hãy trả lời thẳng đáp án từ đoạn văn nếu có.
 4. Câu hỏi có thể hỏi ngoài lề, tuy có một số thông tin trong câu hỏi có thể liên quan đến đoạn văn nhưng KHÔNG PHẢI LÀ CÂU TRẢ LỜI. Hãy cẩn thận để không bị nhầm lẫn.
+
 """
 
 # Template cho từng ví dụ trong Few-shot
@@ -254,13 +255,21 @@ def main():
             ).to(args.device)
             
             # Generate batch (greedy decoding - nhanh hơn beam search)
+            # Chuẩn bị eos_token_id
+            eos_tokens = []
+            if tokenizer.eos_token_id is not None:
+                eos_tokens.append(tokenizer.eos_token_id)
+            newline_id = tokenizer.convert_tokens_to_ids("\n")
+            if newline_id is not None and newline_id != tokenizer.unk_token_id:
+                eos_tokens.append(newline_id)
+            
             with torch.no_grad():
                 outputs = model.generate(
                     inputs.input_ids,
                     attention_mask=inputs.attention_mask,
                     max_new_tokens=args.max_new_tokens,
                     do_sample=False,
-                    eos_token_id=[tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("\n")]
+                    eos_token_id=eos_tokens if eos_tokens else None
                 )
             
             # Decode batch
