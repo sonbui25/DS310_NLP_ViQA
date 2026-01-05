@@ -134,25 +134,47 @@ def main():
         return
 
     # 3. Load Data
+    print(f"Loading data from: {args.test_file}")
     with open(args.test_file, 'r', encoding='utf-8') as f:
         raw_data = json.load(f)
 
-    # Chuyển đổi dữ liệu phẳng (nếu cần) hoặc lấy trực tiếp từ list
+    all_samples = []
+
+    # Xử lý logic đa định dạng (Adaptive Data Loading)
     if isinstance(raw_data, dict) and 'data' in raw_data:
-        # Xử lý format SQuAD chuẩn
-        all_samples = []
-        for article in raw_data['data']:
-            for paragraph in article['paragraphs']:
-                context = paragraph['context']
-                for qa in paragraph['qas']:
+        data_list = raw_data['data']
+        
+        if len(data_list) > 0:
+            # KIỂM TRA ĐỊNH DẠNG:
+            first_item = data_list[0]
+            
+            # TRƯỜNG HỢP 1: Format SQuAD chuẩn (lồng nhau: paragraphs -> qas)
+            if 'paragraphs' in first_item:
+                for article in data_list:
+                    for paragraph in article['paragraphs']:
+                        context = paragraph['context']
+                        for qa in paragraph['qas']:
+                            all_samples.append({
+                                "id": qa['id'],
+                                "context": context,
+                                "question": qa['question']
+                            })
+            
+            # TRƯỜNG HỢP 2: Format Phẳng (Private Test của ViQuAD/Kaggle)
+            # Dữ liệu nằm trực tiếp trong list: [{"id":..., "context":..., "question":...}]
+            else:
+                for item in data_list:
                     all_samples.append({
-                        "id": qa['id'],
-                        "context": context,
-                        "question": qa['question']
+                        "id": item['id'],
+                        "context": item['context'],
+                        "question": item['question']
                     })
-    else:
-        # Xử lý format list đơn giản (nếu có)
+    
+    # TRƯỜNG HỢP 3: Dữ liệu là List ngay từ đầu
+    elif isinstance(raw_data, list):
         all_samples = raw_data
+
+    print(f"Đã load {len(all_samples)} mẫu dữ liệu.")
 
     # Biến lưu kết quả
     predictions = {}
