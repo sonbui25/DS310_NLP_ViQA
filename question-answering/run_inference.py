@@ -200,41 +200,38 @@ def main():
             decoded_sequences = tokenizer.batch_decode(outputs, skip_special_tokens=True)
             
             for sample, raw_text in zip(batch_samples, decoded_sequences):
-                # --- LOGIC LÀM SẠCH KẾT QUẢ (CẬP NHẬT) ---
+                # --- LOGIC LÀM SẠCH KẾT QUẢ (CẬP NHẬT FIX LỖI "SYSTEM") ---
                 
-                # 1. Tách phần prompt ra khỏi phần answer
-                # Do dùng skip_special_tokens=True, thẻ <|im_start|>assistant bị mất,
-                # nhưng từ "assistant" vẫn còn trong raw text (nếu tokenizer không gộp).
-                # Cách an toàn nhất cho ChatML decoded: Tìm từ "assistant" cuối cùng.
-                
+                # 1. Tách phần prompt
                 if "assistant" in raw_text:
-                    # Lấy phần sau chữ assistant cuối cùng
                     clean_answer = raw_text.rpartition("assistant")[2] 
                 elif "Trả lời:" in raw_text:
-                    # Fallback nếu model lặp lại format few-shot
                     clean_answer = raw_text.rpartition("Trả lời:")[2]
                 else:
-                    # Trường hợp hiếm: Giữ nguyên hoặc cắt theo độ dài prompt (tương đối)
                     clean_answer = raw_text
 
-                # 2. Xử lý xuống dòng và khoảng trắng (QUAN TRỌNG)
-                # .strip() trước để loại bỏ \n ở đầu câu (nguyên nhân gây ra output rỗng)
+                # 2. Xử lý xuống dòng & khoảng trắng
                 clean_answer = clean_answer.strip()
-                
-                # Lấy dòng đầu tiên (nếu model giải thích dài dòng)
                 if '\n' in clean_answer:
                     clean_answer = clean_answer.split('\n')[0]
                 
-                # 3. Loại bỏ prefix rác còn sót lại (nếu có)
-                # Dùng regex hoặc loop
+                # 3. FIX LỖI "SYSTEM": Nếu kết quả chỉ còn trơ trọi chữ "system" -> Coi như rỗng
+                # (Vì model lỡ sinh ra thẻ <|im_start|>system)
+                if clean_answer.lower().strip() == "system":
+                    clean_answer = ""
+
+                # 4. Loại bỏ các prefix rác khác
                 remove_prefixes = ["Câu trả lời là:", "Answer:", "Đáp án:", ":"]
                 for prefix in remove_prefixes:
                     if clean_answer.lower().startswith(prefix.lower()):
                         clean_answer = clean_answer[len(prefix):].strip()
 
-                # Lưu vào dict
+                # Lưu kết quả
                 predictions[sample['id']] = clean_answer
-                print(f"ID: {sample['id']} | Ans : {clean_answer}") 
+                
+                # In ra để kiểm tra (chỉ in nếu có đáp án để đỡ rối mắt)
+                # if clean_answer: 
+                print(f"ID: {sample['id']} | Ans : {clean_answer}")
                 
             pbar.update(len(batch_samples))
 
