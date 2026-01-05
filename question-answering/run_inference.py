@@ -212,7 +212,7 @@ def main():
 
                 # 2. [QUAN TRỌNG] Cắt bỏ phần "Đoạn văn:" bịa thêm
                 # Nếu model viết tiếp "Đoạn văn: ...", ta cắt bỏ từ đó trở đi
-                stop_phrases = ["Đoạn văn:", "Câu hỏi:", "Context:", "Question:"]
+                stop_phrases = ["Đoạn văn:", "Câu hỏi:", "Context:", "Question:", "Quy tắc bắt buộc:"]
                 for phrase in stop_phrases:
                     if phrase in clean_answer:
                         # Chỉ lấy phần trước từ khóa đó
