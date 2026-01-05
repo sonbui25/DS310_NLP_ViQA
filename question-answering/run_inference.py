@@ -243,7 +243,7 @@ def main():
                 
                 # In ra kiểm tra
                 # if clean_answer:
-                print(f"ID: {sample['id']} | Ans : {clean_answer}")
+                # print(f"ID: {sample['id']} | Ans : {clean_answer}")
                 
             pbar.update(len(batch_samples))
 
