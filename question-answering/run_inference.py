@@ -97,6 +97,7 @@ def parse_args():
     # Các tham số kỹ thuật
     parser.add_argument("--max_length", type=int, default=1024, help="Độ dài tối đa của Prompt đầu vào")
     parser.add_argument("--max_new_tokens", type=int, default=100, help="Độ dài tối đa câu trả lời sinh ra")
+    parser.add_argument("--batch_size", type=int, default=8, help="Số lượng câu hỏi xử lý cùng lúc")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     
     return parser.parse_args()
@@ -108,6 +109,7 @@ def main():
     print(f"CẤU HÌNH CHẠY: {args.mode.upper()}")
     print(f"Model: {args.model_name}")
     print(f"Input: {args.test_file}")
+    print(f"Batch size: {args.batch_size}")
     if args.mode == "few-shot":
         print(f"Số lượng shots: {min(args.num_shots, len(FEW_SHOT_EXAMPLES_DATA))}")
     print(f"{'='*40}\n")
@@ -156,46 +158,61 @@ def main():
     # Tính tổng số câu hỏi để hiện thanh loading
     total_qas = sum(len(p['qas']) for p in paragraphs)
     
-    # 3. Inference Loop
+    # 3. Chuẩn bị tất cả samples
+    all_samples = []
+    for paragraph in paragraphs:
+        context = paragraph['context']
+        for qa in paragraph['qas']:
+            all_samples.append({
+                'id': qa['id'],
+                'context': context,
+                'question': qa['question']
+            })
+    
+    # 4. Inference Loop với Batching
     print("Bắt đầu dự đoán...")
-    with tqdm(total=total_qas, desc="Processing") as pbar:
-        for paragraph in paragraphs:
-            context = paragraph['context']
-            for qa in paragraph['qas']:
-                question = qa['question']
-                q_id = qa['id']
-                
-                # --- TẠO PROMPT ---
-                input_text = build_prompt(
-                    mode=args.mode, 
-                    context=context, 
-                    question=question, 
+    with tqdm(total=len(all_samples), desc="Processing") as pbar:
+        for i in range(0, len(all_samples), args.batch_size):
+            batch_samples = all_samples[i:i + args.batch_size]
+            
+            # Tạo prompts cho cả batch
+            batch_prompts = [
+                build_prompt(
+                    mode=args.mode,
+                    context=sample['context'],
+                    question=sample['question'],
                     num_shots=args.num_shots
                 )
-                
-                # Tokenize
-                inputs = tokenizer(
-                    input_text, 
-                    return_tensors="pt", 
-                    max_length=args.max_length, 
-                    truncation=True
-                ).to(args.device)
-                
-                # Generate
-                with torch.no_grad():
-                    outputs = model.generate(
-                        inputs.input_ids,
-                        max_new_tokens=args.max_new_tokens,
-                        num_beams=2,
-                        early_stopping=True
-                    )
-                
-                # Decode
-                answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
-                
-                # Lưu kết quả (Map ID -> Text)
-                predictions[q_id] = answer
-                pbar.update(1)
+                for sample in batch_samples
+            ]
+            
+            # Tokenize batch
+            inputs = tokenizer(
+                batch_prompts,
+                return_tensors="pt",
+                max_length=args.max_length,
+                truncation=True,
+                padding=True
+            ).to(args.device)
+            
+            # Generate batch
+            with torch.no_grad():
+                outputs = model.generate(
+                    inputs.input_ids,
+                    attention_mask=inputs.attention_mask,
+                    max_new_tokens=args.max_new_tokens,
+                    num_beams=2,
+                    early_stopping=True
+                )
+            
+            # Decode batch
+            answers = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+            
+            # Lưu kết quả
+            for sample, answer in zip(batch_samples, answers):
+                predictions[sample['id']] = answer
+            
+            pbar.update(len(batch_samples))
 
     # 4. Save Results
     print(f"\nĐã xong! Lưu kết quả vào {args.output_file}")
