@@ -128,58 +128,74 @@ def main():
 
     predictions = {}
 
-    def extract_paragraphs(article):
-        # ViQuAD private test may store qas directly under each article
-        if 'paragraphs' in article:
-            return article['paragraphs']
-        if 'context' in article and 'qas' in article:
-            return [{"context": article['context'], "qas": article['qas']}]
-        raise KeyError("Article không có trường paragraphs hay context/qas")
+    def normalize_paragraphs(raw_data):
+        # Chuẩn hóa mọi format có thể: SQuAD (paragraphs), đơn lẻ context/qas,
+        # hoặc mỗi item chỉ chứa context-question-id (private test)
+        articles = raw_data.get('data', raw_data) if isinstance(raw_data, dict) else raw_data
+        if not isinstance(articles, list):
+            raise ValueError("Định dạng file không hợp lệ: data phải là list hoặc có key 'data'")
+
+        paragraphs = []
+        for art in articles:
+            if {'context', 'question', 'id'}.issubset(art.keys()):
+                qas_answers = art.get('answers', {'answer_start': [], 'text': []})
+                paragraphs.append({
+                    'context': art['context'],
+                    'qas': [{
+                        'question': art['question'],
+                        'id': art['id'],
+                        'answers': qas_answers
+                    }]
+                })
+            else:
+                raise KeyError(f"Article không hợp lệ, thiếu keys cần thiết. Keys có: {list(art.keys())}")
+        return paragraphs
+
+    paragraphs = normalize_paragraphs(data)
     
     # Tính tổng số câu hỏi để hiện thanh loading
-    total_qas = sum(len(p['qas']) for art in data['data'] for p in extract_paragraphs(art))
+    total_qas = sum(len(p['qas']) for p in paragraphs)
     
     # 3. Inference Loop
     print("Bắt đầu dự đoán...")
     with tqdm(total=total_qas, desc="Processing") as pbar:
-        for article in data['data']:
-            for paragraph in extract_paragraphs(article):
-                context = paragraph['context']
-                for qa in paragraph['qas']:
-                    question = qa['question']
-                    q_id = qa['id']
-                    
-                    # --- TẠO PROMPT ---
-                    input_text = build_prompt(
-                        mode=args.mode, 
-                        context=context, 
-                        question=question, 
-                        num_shots=args.num_shots
+        for paragraph in paragraphs:
+            context = paragraph['context']
+            for qa in paragraph['qas']:
+                question = qa['question']
+                q_id = qa['id']
+                
+                # --- TẠO PROMPT ---
+                input_text = build_prompt(
+                    mode=args.mode, 
+                    context=context, 
+                    question=question, 
+                    num_shots=args.num_shots
+                )
+                
+                # Tokenize
+                inputs = tokenizer(
+                    input_text, 
+                    return_tensors="pt", 
+                    max_length=args.max_length, 
+                    truncation=True
+                ).to(args.device)
+                
+                # Generate
+                with torch.no_grad():
+                    outputs = model.generate(
+                        inputs.input_ids,
+                        max_new_tokens=args.max_new_tokens,
+                        num_beams=2,
+                        early_stopping=True
                     )
-                    
-                    # Tokenize
-                    inputs = tokenizer(
-                        input_text, 
-                        return_tensors="pt", 
-                        max_length=args.max_length, 
-                        truncation=True
-                    ).to(args.device)
-                    
-                    # Generate
-                    with torch.no_grad():
-                        outputs = model.generate(
-                            inputs.input_ids,
-                            max_new_tokens=args.max_new_tokens,
-                            num_beams=2,
-                            early_stopping=True
-                        )
-                    
-                    # Decode
-                    answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
-                    
-                    # Lưu kết quả (Map ID -> Text)
-                    predictions[q_id] = answer
-                    pbar.update(1)
+                
+                # Decode
+                answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                
+                # Lưu kết quả (Map ID -> Text)
+                predictions[q_id] = answer
+                pbar.update(1)
 
     # 4. Save Results
     print(f"\nĐã xong! Lưu kết quả vào {args.output_file}")
