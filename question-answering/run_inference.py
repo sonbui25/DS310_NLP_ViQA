@@ -14,7 +14,7 @@ from tqdm import tqdm
 SYSTEM_INSTRUCTION = """Bạn là một hệ thống Đọc hiểu máy (Machine Reading Comprehension). Nhiệm vụ của bạn là trích xuất câu trả lời từ đoạn văn bản cho trước.
 
 Quy tắc bắt buộc:
-1. Câu trả lời phải là một đoạn văn bản (span) được lấy NGUYÊN VĂN từ "Đoạn văn". Không được thay đổi từ ngữ, hay thêm từ ngữ. Đặc biệt là các tên riêng hay thuật ngữ, số liệu, thời gian phải giữ nguyên.
+1. Câu trả lời phải là một đoạn văn bản (span) được lấy NGUYÊN VĂN từ "Đoạn văn". Không được thay đổi từ ngữ, hay thêm từ ngữ.
 2. Nếu thông tin không có trong "Đoạn văn", hãy trả về chuỗi rỗng "" (không viết gì cả).
 3. Câu trả lời được trích ra phải chính xác như được hiển thị trong đoạn văn về format và độ dài, bao gồm cả cụm đầy đủ xung quanh nó trong đoạn văn để tạo thành một câu trả lời có ý nghĩa chứ không phải lấy riêng cụm từ có câu trả lời. Không thêm bất kỳ từ ngữ nào khác.
 4. Không lặp lại hay sử dụng các từ ngữ trong câu hỏi làm câu dẫn dắt tới câu trả lời.
