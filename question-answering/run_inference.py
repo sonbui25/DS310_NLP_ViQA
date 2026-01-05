@@ -98,6 +98,9 @@ def parse_args():
     parser.add_argument("--max_length", type=int, default=1024, help="Độ dài tối đa của Prompt đầu vào")
     parser.add_argument("--max_new_tokens", type=int, default=100, help="Độ dài tối đa câu trả lời sinh ra")
     parser.add_argument("--batch_size", type=int, default=8, help="Số lượng câu hỏi xử lý cùng lúc")
+    parser.add_argument("--cache_dir", type=str, default=None, help="Thư mục cache model (tùy chọn)")
+    parser.add_argument("--auth_token", type=str, default=None, help="HF token nếu model yêu cầu quyền truy cập")
+    parser.add_argument("--trust_remote_code", action="store_true", help="Cho phép load code tùy chỉnh của model")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     
     return parser.parse_args()
@@ -118,10 +121,20 @@ def main():
     print("Đang tải model...")
     
     # Tự động detect loại model (Seq2Seq hay CausalLM)
-    config = AutoConfig.from_pretrained(args.model_name)
+    config = AutoConfig.from_pretrained(
+        args.model_name,
+        cache_dir=args.cache_dir,
+        token=args.auth_token,
+        trust_remote_code=args.trust_remote_code,
+    )
     is_encoder_decoder = getattr(config, 'is_encoder_decoder', False)
     
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name,
+        cache_dir=args.cache_dir,
+        token=args.auth_token,
+        trust_remote_code=args.trust_remote_code,
+    )
     
     # Đảm bảo tokenizer có pad token (cần cho batching)
     if tokenizer.pad_token is None:
@@ -129,10 +142,20 @@ def main():
     
     if is_encoder_decoder:
         print(f"  → Loại model: Encoder-Decoder (Seq2Seq)")
-        model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name).to(args.device)
+        model = AutoModelForSeq2SeqLM.from_pretrained(
+            args.model_name,
+            cache_dir=args.cache_dir,
+            token=args.auth_token,
+            trust_remote_code=args.trust_remote_code,
+        ).to(args.device)
     else:
         print(f"  → Loại model: Decoder-only (CausalLM)")
-        model = AutoModelForCausalLM.from_pretrained(args.model_name).to(args.device)
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_name,
+            cache_dir=args.cache_dir,
+            token=args.auth_token,
+            trust_remote_code=args.trust_remote_code,
+        ).to(args.device)
     
     model.eval()
 
