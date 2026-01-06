@@ -5,7 +5,7 @@ import os
 import re # Thêm thư viện này để xử lý chuỗi tốt hơn
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from tqdm import tqdm
-from openai import OpenAI # Import OpenAI client cho GPT-4o mini
+from openai import OpenAI # Import OpenAI client cho GPT API
 from concurrent.futures import ThreadPoolExecutor, as_completed # Để xử lý batch cho GPT API
 
 # ==============================================================================
@@ -49,13 +49,14 @@ FEW_SHOT_EXAMPLES_DATA = [
 # PHẦN 2: CÁC HÀM HỖ TRỢ XỬ LÝ PROMPT
 # ==============================================================================
 
-def call_gpt4o_mini(context, question, mode='zero-shot', num_shots=3, api_key=None):
+def call_gpt_api(context, question, model_name='gpt-4o-mini', mode='zero-shot', num_shots=3, api_key=None):
     """
-    Gọi GPT-4o mini API để trả lời câu hỏi QA
+    Gọi GPT API để trả lời câu hỏi QA
     
     Args:
         context: Đoạn văn bản
         question: Câu hỏi
+        model_name: Tên model GPT (gpt-4, gpt-3.5-turbo, gpt-4o, gpt-4o-mini, v.v.)
         mode: 'zero-shot' hoặc 'few-shot'
         num_shots: Số lượng ví dụ few-shot (nếu mode='few-shot')
         api_key: OpenAI API key
@@ -85,7 +86,7 @@ def call_gpt4o_mini(context, question, mode='zero-shot', num_shots=3, api_key=No
         
         # Gọi API
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model_name,
             messages=messages,
             max_tokens=128,
             temperature=0
@@ -143,7 +144,7 @@ def build_prompt(mode, context, question, model_name, num_shots=3):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, required=True)
+    parser.add_argument("--model_name", type=str, required=True, help="Tên model (local: vinallama_2_7B_chat, Qwen1.5_4B_Chat, etc. | GPT API: gpt-4, gpt-3.5-turbo, gpt-4o, gpt-4o-mini, etc.)")
     parser.add_argument("--test_file", type=str, required=True)
     parser.add_argument("--output_file", type=str, required=True)
     parser.add_argument("--mode", type=str, default="zero-shot", choices=["zero-shot", "few-shot"])
@@ -154,22 +155,22 @@ def main():
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--auth_token", type=str, default=None)
     parser.add_argument("--multi_gpu", action="store_true")
-    parser.add_argument("--use_gpt4o", action="store_true", help="Sử dụng GPT-4o mini API thay vì local model")
-    parser.add_argument("--openai_api_key", type=str, default=None, help="OpenAI API key (bắt buộc nếu dùng --use_gpt4o)")
+    parser.add_argument("--use_openai", action="store_true", help="Sử dụng OpenAI GPT API thay vì local model")
+    parser.add_argument("--openai_api_key", type=str, default=None, help="OpenAI API key (bắt buộc nếu dùng --use_openai)")
     args = parser.parse_args()
 
     # ==============================================================================
-    # PHẦN: XỬ LÝ GPT-4O MINI API
+    # PHẦN: XỬ LÝ OPENAI GPT API
     # ==============================================================================
-    if args.use_gpt4o:
+    if args.use_openai:
         if not args.openai_api_key:
             # Thử lấy từ biến môi trường
             args.openai_api_key = os.environ.get("OPENAI_API_KEY")
             if not args.openai_api_key:
-                print("ERROR: --openai_api_key bắt buộc khi dùng --use_gpt4o hoặc đặt biến môi trường OPENAI_API_KEY")
+                print("ERROR: --openai_api_key bắt buộc khi dùng --use_openai hoặc đặt biến môi trường OPENAI_API_KEY")
                 return
         
-        print("Sử dụng GPT-4o mini API mode")
+        print(f"Sử dụng OpenAI API mode với model: {args.model_name}")
         
         # Load data
         print(f"Loading data from: {args.test_file}")
@@ -200,7 +201,7 @@ def main():
         print(f"Đã load {len(all_samples)} mẫu dữ liệu.")
         
         predictions = {}
-        print(f"Bắt đầu dự đoán với GPT-4o mini ({args.mode}) - batch_size: {args.batch_size}...")
+        print(f"Bắt đầu dự đoán với {args.model_name} ({args.mode}) - batch_size: {args.batch_size}...")
         
         # Xử lý theo batch với concurrent requests
         with tqdm(total=len(all_samples)) as pbar:
@@ -212,9 +213,10 @@ def main():
                     # Submit tất cả requests trong batch
                     future_to_sample = {
                         executor.submit(
-                            call_gpt4o_mini,
+                            call_gpt_api,
                             sample['context'],
                             sample['question'],
+                            args.model_name,
                             args.mode,
                             args.num_shots,
                             args.openai_api_key
@@ -223,24 +225,26 @@ def main():
                     }
                     
                     # Đợi tất cả requests trong batch hoàn thành
-                    batch_results = []
                     for future in as_completed(future_to_sample):
                         sample = future_to_sample[future]
                         try:
                             answer = future.result()
-                            batch_results.append((sample['id'], answer))
+                            predictions[sample['id']] = answer
                         except Exception as e:
                             print(f"\nError processing sample {sample['id']}: {e}")
-                            batch_results.append((sample['id'], ""))
-                    
-                    # Lưu tất cả kết quả của batch và in ra
-                    for sample_id, answer in batch_results:
-                        predictions[sample_id] = answer
-                        # In kết quả
-                        print(f"\nID: {sample_id} | Ans: {answer}")
+                            predictions[sample['id']] = ""
                     
                     # Update progress bar một lần cho cả batch
                     pbar.update(len(batch_samples))
+        
+        # In kết quả theo đúng thứ tự ID
+        print("\n" + "="*80)
+        print("KẾT QUẢ DỰ ĐOÁN (theo thứ tự):")
+        print("="*80)
+        for sample in all_samples:
+            answer = predictions.get(sample['id'], "")
+            if answer:
+                print(f"ID: {sample['id']} | Ans: {answer}")
         
         # Lưu kết quả
         print(f"\nLưu file: {args.output_file}")
