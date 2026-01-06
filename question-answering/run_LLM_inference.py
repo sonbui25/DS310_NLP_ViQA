@@ -56,7 +56,7 @@ def call_gpt_api(context, question, model_name='gpt-4o-mini', mode='zero-shot', 
     Args:
         context: Đoạn văn bản
         question: Câu hỏi
-        model_name: Tên model GPT (gpt-4, gpt-3.5-turbo, gpt-4o, gpt-4o-mini, v.v.)
+        model_name: Tên model GPT (gpt-4, gpt-3.5-turbo, gpt-4o, gpt-4o-mini, gpt-5-mini, v.v.)
         mode: 'zero-shot' hoặc 'few-shot'
         num_shots: Số lượng ví dụ few-shot (nếu mode='few-shot')
         api_key: OpenAI API key
@@ -85,12 +85,20 @@ def call_gpt_api(context, question, model_name='gpt-4o-mini', mode='zero-shot', 
         messages.append({"role": "user", "content": user_message})
         
         # Gọi API
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            max_tokens=128,
-            temperature=0
-        )
+        # Các model mới (gpt-4o, gpt-5) dùng max_completion_tokens, các model cũ dùng max_tokens
+        api_params = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": 0
+        }
+        
+        # Kiểm tra model để chọn parameter phù hợp
+        if 'gpt-5' in model_name or 'gpt-4o' in model_name:
+            api_params["max_completion_tokens"] = 128
+        else:
+            api_params["max_tokens"] = 128
+        
+        response = client.chat.completions.create(**api_params)
         
         answer = response.choices[0].message.content.strip()
         
@@ -107,7 +115,7 @@ def call_gpt_api(context, question, model_name='gpt-4o-mini', mode='zero-shot', 
         return answer
         
     except Exception as e:
-        print(f"Error calling GPT-4o mini API: {e}")
+        print(f"Error calling {model_name} API: {e}")
         return ""
 
 def build_prompt(mode, context, question, model_name, num_shots=3):
