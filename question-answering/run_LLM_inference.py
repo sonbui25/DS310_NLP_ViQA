@@ -2,7 +2,8 @@ import argparse
 import json
 import torch
 import os
-import re # Thêm thư viện này để xử lý chuỗi tốt hơn
+import re
+import time # Thêm thư viện này để xử lý chuỗi tốt hơn
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from tqdm import tqdm
 from openai import OpenAI # Import OpenAI client cho GPT API
@@ -169,6 +170,7 @@ def main():
     parser.add_argument("--multi_gpu", action="store_true")
     parser.add_argument("--use_openai", action="store_true", help="Sử dụng OpenAI GPT API thay vì local model")
     parser.add_argument("--openai_api_key", type=str, default=None, help="OpenAI API key (bắt buộc nếu dùng --use_openai)")
+    parser.add_argument("--sleep_time", type=float, default=5.0, help="Thời gian chờ giữa các batch (giây) để tránh vượt rate limit")
     args = parser.parse_args()
 
     # ==============================================================================
@@ -246,17 +248,18 @@ def main():
                             print(f"\nError processing sample {sample['id']}: {e}")
                             predictions[sample['id']] = ""
                     
+                    # In kết quả của batch này theo đúng thứ tự
+                    for sample in batch_samples:
+                        answer = predictions.get(sample['id'], "")
+                        if answer:
+                            print(f"ID: {sample['id']} | Ans: {answer}")
+                    
                     # Update progress bar một lần cho cả batch
                     pbar.update(len(batch_samples))
-        
-        # In kết quả theo đúng thứ tự ID
-        print("\n" + "="*80)
-        print("KẾT QUẢ DỰ ĐOÁN (theo thứ tự):")
-        print("="*80)
-        for sample in all_samples:
-            answer = predictions.get(sample['id'], "")
-            if answer:
-                print(f"ID: {sample['id']} | Ans: {answer}")
+                    
+                    # Chờ để tránh vượt rate limit (ngoại trừ batch cuối)
+                    if i + args.batch_size < len(all_samples):
+                        time.sleep(args.sleep_time)
         
         # Lưu kết quả
         print(f"\nLưu file: {args.output_file}")
