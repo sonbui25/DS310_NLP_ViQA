@@ -222,18 +222,25 @@ def main():
                         for sample in batch_samples
                     }
                     
-                    # Lấy kết quả khi hoàn thành
+                    # Đợi tất cả requests trong batch hoàn thành
+                    batch_results = []
                     for future in as_completed(future_to_sample):
                         sample = future_to_sample[future]
                         try:
                             answer = future.result()
-                            predictions[sample['id']] = answer
-                            print(f"ID: {sample['id']} | Ans : {answer}")
+                            batch_results.append((sample['id'], answer))
                         except Exception as e:
                             print(f"\nError processing sample {sample['id']}: {e}")
-                            predictions[sample['id']] = ""
-                        
-                        pbar.update(1)
+                            batch_results.append((sample['id'], ""))
+                    
+                    # Lưu tất cả kết quả của batch và in ra
+                    for sample_id, answer in batch_results:
+                        predictions[sample_id] = answer
+                        # In kết quả
+                        print(f"\nID: {sample_id} | Ans: {answer}")
+                    
+                    # Update progress bar một lần cho cả batch
+                    pbar.update(len(batch_samples))
         
         # Lưu kết quả
         print(f"\nLưu file: {args.output_file}")
